@@ -123,9 +123,15 @@ uint8 qt1x0_wakeup(uint16 speed) {
   /* The Apple IIc printer being closed right now,
    * we have to set DTR before clearing it.
    */
+#if defined(DIODE_HACK) && DIODE_HACK
+  simple_serial_acia_onoff(printer_slot, 1);
+  sleep(1);
+  simple_serial_acia_enable_recv();
+#else
   simple_serial_acia_onoff(printer_slot, 1);
   sleep(1);
   simple_serial_acia_onoff(printer_slot, 0);
+#endif
 #else
   simple_serial_dtr_onoff(0);
 #endif

@@ -7,6 +7,7 @@
         .export         _serial_read_byte_no_irq
         .export         _serial_putc_direct
         .export         _simple_serial_setup_no_irq_regs
+        .export         _serial_wait_dsr
 
         .export         acia_status_reg_r, acia_data_reg_r
         .include        "apple2.inc"
@@ -28,10 +29,12 @@ _simple_serial_setup_no_irq_regs:
         adc     #<ACIA_STATUS
         sta     acia_status_reg_r+1
         sta     acia_status_reg_w+1
+        sta     acia_status_reg_o+1
         lda     #>ACIA_STATUS
         adc     #0
         sta     acia_status_reg_r+2
         sta     acia_status_reg_w+2
+        sta     acia_status_reg_o+2
         txa
         clc
         adc     #<ACIA_DATA
@@ -61,4 +64,13 @@ acia_status_reg_w:
         pla
 acia_data_reg_w:
         sta     $FFFF
+        rts
+
+_serial_wait_dsr:
+        pha
+acia_status_reg_o:
+:       lda     $FFFF
+        and     #$40
+        beq     :-
+        pla
         rts

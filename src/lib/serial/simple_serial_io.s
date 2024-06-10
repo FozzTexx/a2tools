@@ -5,10 +5,15 @@
         .export         _simple_serial_puts
         .export         _simple_serial_getc
         .export         _simple_serial_write
+        .export         _simple_serial_putc
         .export         _simple_serial_flush
         .export         simple_serial_compute_ptr_end
 
         .import         _simple_serial_getc_with_timeout
+        .import         _simple_serial_acia_rts_off
+        .import         _simple_serial_acia_enable_xmit
+        .import         _simple_serial_acia_enable_recv
+        .import         _serial_wait_dsr
         .import         _ser_get, _serial_putc_direct, _strlen
         .import         pushax, popax
         .importzp       tmp2, ptr3, ptr4
@@ -58,6 +63,7 @@ simple_serial_compute_ptr_end:
 ; void __fastcall__ simple_serial_write(const char *ptr, size_t nmemb) {
 
 _simple_serial_write:
+        jsr     _simple_serial_acia_enable_xmit
         jsr     simple_serial_compute_ptr_end
 write_again:
         ldy     #$00
@@ -73,6 +79,25 @@ write_again:
         ldx     ptr4+1
         cpx     ptr3+1
         bne     write_again
+        pha
+        phx
+        jsr     _simple_serial_acia_rts_off
+        jsr     _serial_wait_dsr
+        jsr     _simple_serial_acia_enable_recv
+        plx
+        pla
+        rts
+
+_simple_serial_putc:
+        jsr     _simple_serial_acia_enable_xmit
+        jsr     _serial_putc_direct
+        pha
+        phx
+        jsr     _simple_serial_acia_rts_off
+        jsr     _serial_wait_dsr
+        jsr     _simple_serial_acia_enable_recv
+        plx
+        pla
         rts
 
 _simple_serial_flush:

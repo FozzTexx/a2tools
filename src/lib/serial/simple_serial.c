@@ -40,21 +40,21 @@ unsigned char data_baudrate = SER_BAUD_115200;
 unsigned char printer_baudrate = SER_BAUD_9600;
 unsigned char flow_control = SER_HS_HW;
 
-  unsigned char open_slot = 0;
-#ifdef IIGS
-  unsigned char data_slot = 0;
-  unsigned char printer_slot = 1;
-#else
-  unsigned char data_slot = 2;
-  unsigned char printer_slot = 1;
-#endif
+unsigned char open_slot = 0;
+unsigned char data_slot = MODEM_SER_SLOT;
+unsigned char printer_slot = PRINTER_SER_SLOT;
+
 /* Setup */
 static struct ser_params default_params = {
     SER_BAUD_115200,    /* Baudrate */
     SER_BITS_8,         /* Number of data bits */
     SER_STOP_1,         /* Number of stop bits */
     SER_PAR_NONE,       /* Parity setting */
+#if DIODE_HACK
+    SER_HS_NONE         /* Type of handshake to use */
+#else
     SER_HS_HW           /* Type of handshake to use */
+#endif
 };
 
 #pragma code-name (push, "RT_ONCE")

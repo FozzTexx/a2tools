@@ -11,6 +11,9 @@
         .export         _simple_serial_dtr_onoff
         .export         _simple_serial_set_parity
         .export         _simple_serial_set_flow_control
+        .export         _simple_serial_acia_rts_off
+        .export         _simple_serial_acia_enable_xmit
+        .export         _simple_serial_acia_enable_recv
 
         .include        "apple2.inc"
         .include        "ser-kernel.inc"
@@ -38,16 +41,50 @@ _simple_serial_set_speed:
 set_speed_done:
         rts
 
+_simple_serial_acia_rts_off:
+        lda     _open_slot
+        jsr     get_acia_reg_idx
+        lda     ACIA_CMD,x
+        and     #%11110011
+        sta     ACIA_CMD,x
+        rts
+
+_simple_serial_acia_enable_xmit:
+        pha
+        phx
+        lda     _open_slot
+        jsr     get_acia_reg_idx
+        lda     ACIA_CMD,x
+        and     #%11110010
+        ora     #%00001000
+        sta     ACIA_CMD,x
+        plx
+        pla
+        rts
+
+_simple_serial_acia_enable_recv:
+        pha
+        phx
+        lda     _open_slot
+        jsr     get_acia_reg_idx
+        lda     ACIA_CMD,x
+        and     #%11110010
+        ora     #%00000001
+        sta     ACIA_CMD,x
+        plx
+        pla
+        rts
+
 _simple_serial_acia_onoff:
         tay
         jsr     popa
         jsr     get_acia_reg_idx
         beq     :++
         lda     ACIA_CMD,x
-        and     #%11110000
+        and     #%11110010
         cpy     #0
         beq     :+
-        ora     #%00001011
+        ora     #%00001001
 :       sta     ACIA_CMD,x
 :       rts
 

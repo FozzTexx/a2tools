@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#define DIODE_HACK 1
+
 #ifdef __CC65__
 #include <serial.h>
 #else
@@ -20,8 +22,12 @@
 #define PRINTER_SER_SLOT 1
 #define MODEM_SER_SLOT 0
 #else
-#define PRINTER_SER_SLOT 1
 #define MODEM_SER_SLOT 2
+#if DIODE_HACK
+#define PRINTER_SER_SLOT MODEM_SER_SLOT
+#else
+#define PRINTER_SER_SLOT 1
+#endif /* DIODE_HACK */
 #endif
 /* Setup */
 
@@ -53,7 +59,12 @@ void __fastcall__ simple_serial_read(char *ptr, size_t nmemb);
    (speed == SER_BAUD_19200)? "19200": \
    (speed == SER_BAUD_57600)? "57600":"115200")
 
+#if !defined(DIODE_HACK) || !DIODE_HACK
 #define simple_serial_putc serial_putc_direct
+#else
+void __fastcall__ simple_serial_putc(unsigned char c);
+void __fastcall__ simple_serial_acia_enable_recv();
+#endif
 
 #else
 int simple_serial_open(void);

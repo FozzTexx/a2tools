@@ -103,7 +103,7 @@ qtknconv_CC65SOURCES := \
 	../lib/approxdiv16x8.s \
 	../lib/square_table.s \
 	../lib/check_floppy.s
-	
+
 qtknconv_GCCSOURCES := \
 	qtk_bithuff.c
 
@@ -159,10 +159,16 @@ GCCLDFLAGS = $(shell sdl-config --libs)
 
 all: \
 	splash.h \
-	slowtake.bin slowtake.x86_64 \
-	qtktconv.bin qtktconv.x86_64 \
-	qtknconv.bin qtknconv.x86_64 \
-	jpegconv.bin jpegconv.x86_64 \
+	slowtake.bin \
+	qtktconv.bin \
+	qtknconv.bin \
+	jpegconv.bin
+
+x86_64: \
+	slowtake.x86_64 \
+	qtktconv.x86_64 \
+	qtknconv.x86_64 \
+	jpegconv.x86_64 \
 	loader.x86_64
 
 splash.hgr:
