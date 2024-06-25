@@ -16,13 +16,12 @@ SOURCES := main.c raw-session.c \
 	../lib/extended_conio.c \
 	../lib/clrzone.c \
 	../lib/array_sort.c
-	
 
 hgrconv_SOURCES := hgr-convert.c helpers/hgr-convert.c
 
 CFLAGS= -I ../lib -I helpers $(shell sdl-config --cflags) \
 				-g -O0 -Wall -Wno-char-subscripts -Wno-deprecated-declarations \
-				-Wall -DCONF_FILE_PATH=\"/etc/a2tools/tty.conf\"
+				-Wall -DCONF_FILE_PATH=\"$(prefix)/etc/a2tools/tty.conf\"
 
 .PHONY: all clean
 all: $(PROGRAM) hgr-convert
