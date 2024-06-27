@@ -151,7 +151,7 @@ static uint8 histogram_high[256];
 
 static uint8 *orig_y_table[BAND_HEIGHT];
 static uint16 orig_x0_offset;
-static uint8 orig_x_offset[640];
+static uint8 orig_x_offset[256];
 static uint8 scaled_band_height;
 static uint16 output_write_len;
 static uint8 scaling_factor = 4;
@@ -305,10 +305,11 @@ static void write_raw(uint16 h)
 
   __asm__("lda %v", last_band_crop);
   __asm__("beq %g", full_band);
-  __asm__("lda (sp)");
+  __asm__("ldy %o", h);
+  __asm__("lda (sp),y");
   __asm__("cmp %v", last_band);
   __asm__("bne %g", full_band);
-  __asm__("ldy #1");
+  __asm__("iny");
   __asm__("lda (sp),y");
   __asm__("cmp %v+1", last_band);
   __asm__("bne %g", full_band);
