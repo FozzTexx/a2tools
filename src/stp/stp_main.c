@@ -132,7 +132,7 @@ void stp_print_result(const surl_response *response) {
 
 int main(void) {
   char *url;
-  char c;
+  char c, l;
   char full_update = 1;
   const surl_response *resp;
 
@@ -179,7 +179,10 @@ keyb_input:
       stp_animate_list(0);
     }
     c = tolower(cgetc());
-    switch(c) {
+    l = (c & 0x80) ? PAGE_HEIGHT : 1;
+    full_update = 0;
+
+    switch(c & ~0x80) {
       case CH_ESC:
 up_dir:
         url = stp_url_up(url);
@@ -195,20 +198,23 @@ up_dir:
         break;
       case 'a':
         get_all(url, lines, num_lines);
+        full_update = 1;
         break;
 #ifdef __APPLE2ENH__
       case CH_CURS_UP:
 #else
       case 'u':
 #endif
-        full_update = stp_list_scroll(-1);
+        while (l--)
+          full_update |= stp_list_scroll(-1);
         goto update_list;
 #ifdef __APPLE2ENH__
       case CH_CURS_DOWN:
 #else
       case 'j':
 #endif
-        full_update = stp_list_scroll(+1);
+        while (l--)
+          full_update |= stp_list_scroll(+1);
         goto update_list;
       case 's':
         stp_send_file(url, 0);

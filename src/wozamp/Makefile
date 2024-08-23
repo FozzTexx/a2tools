@@ -61,7 +61,7 @@ wozamp_GCC_SOURCES = \
 	../lib/strtrim.c \
 	../lib/extended_conio.c \
 	../lib/clrzone.c \
-	../lib/serial/simple_serial_io.c
+	../lib/serial/simple_serial_io.c 
 
 #AVOID_ROM_CALLS Needed for scrolldown in 40cols mode
 wozamp_CLCFLAGS = -t $(CC65_TARGET) -DDOUBLE_BUFFER --asm-define DOUBLE_BUFFER \
@@ -77,6 +77,12 @@ GCCCFLAGS = -g -O0 -DCONF_FILE_PATH=\"/etc/a2tools/tty.conf\" \
 	-Werror -DSTP_DATA_SIZE=8192
 
 .PHONY: all clean
+
+### Warning! some memory tricks happen.
+
+#0x4000-0x6000 is HGR page 2,
+#0x4000-0x6000 is ALSO used to store setup code in RT_ONCE in order to shrink
+#              the binary a bit. But DO NOT runtime_once_clean() as usual!
 
 ifdef BUILD_VIDEOPLAY
 videoplay_SOURCES := \
@@ -96,9 +102,10 @@ videoplay_SOURCES := \
 	../lib/extrazp.s \
 	../lib/malloc0.c \
 
+#start address minimum is at 0xC3A (0xC00+EXEHDR size) to leave text page 2 free at 0x800
 videoplay_CLCFLAGS = -t $(CC65_TARGET) -DDOUBLE_BUFFER --asm-define DOUBLE_BUFFER -I ../lib \
-	-Wl -D,__STACKSIZE__=0x0400 -C ../../config/apple2enh-avstreamer.cfg \
-	-vm -m videoplay.map -DSURL_TO_LANGCARD -O --start-addr 0xC3A #$C00 + EXEHDR size
+	-Wl -D,__STACKSIZE__=0x0400 -C ../../config/apple2enh-wozamp-videoplay.cfg \
+	-vm -m videoplay.map -DSURL_TO_LANGCARD -O --start-addr 0x1F00
 
 all: \
 	splash.h \

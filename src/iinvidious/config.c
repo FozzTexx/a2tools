@@ -8,15 +8,16 @@
 #include "surl.h"
 #include "extended_conio.h"
 #include "charsets.h"
-#include "stp_list.h"
 #include "clrzone.h"
+#include "config.h"
+#include "dgets.h"
 
 extern unsigned char scrw;
 char *translit_charset;
-char monochrome;
-char enable_video;
-char enable_subtitles;
 char video_size;
+char enable_subtitles;
+char sub_language[3] = "en";
+char tmp_buf[80];
 
 static FILE *open_config(char *mode) {
   FILE *fp;
@@ -30,8 +31,6 @@ static FILE *open_config(char *mode) {
   return fp;
 }
 
-#pragma code-name(push, "LOWCODE")
-
 static int save_config(void) {
   FILE *fp;
   int r;
@@ -42,12 +41,11 @@ static int save_config(void) {
     return -1;
   }
 
-  r = fprintf(fp, "%s\n%d\n%d\n%d\n%d\n",
+  r = fprintf(fp, "%s\n%d\n%d\n%s\n",
                   translit_charset,
-                  monochrome,
-                  enable_video,
+                  video_size,
                   enable_subtitles,
-                  video_size);
+                  sub_language);
 
   if (r < 0 || fclose(fp) != 0) {
     cputs("Could not save settings file.\r\n");
@@ -69,14 +67,10 @@ again:
   goto again;
 }
 
-#pragma code-name(pop)
-
 void config(void) {
 #ifdef __APPLE2ENH__
   char c;
 #endif
-
-  clrzone(0, PAGE_BEGIN, scrw - 1, PAGE_BEGIN + PAGE_HEIGHT);
 
 #ifdef __APPLE2ENH__
   cputs("Please choose your keyboard layout:\r\n");
@@ -111,25 +105,18 @@ charset_again:
   translit_charset = US_CHARSET;
 #endif
 
-  cputs("\r\nIs your monitor monochrome? (y/n)\r\n");
-  monochrome = get_bool('y', 'n');
-
-#if (defined (__APPLE2ENH__) && !defined (__IIGS__))
-  cputs("\r\nEnable video playback? (y/n)\r\n");
-  enable_video = get_bool('y', 'n');
-
   cputs("\r\nVideo size (Small - more FPS / Large - less FPS)? (s/l)\r\n");
   video_size = get_bool('s' /* HGR_SCALE_HALF */, 'l' /* HGR_SCALE_FULL */);
 
   cputs("\r\nEnable subtitles? (y/n)\r\n");
   enable_subtitles = get_bool('y', 'n');
 
-#else
-  enable_video = 0;
-  video_size = 0;
-  enable_subtitles = 0;
-#endif
-
+  if (enable_subtitles) {
+    cputs("\r\nPreferred subtitles language code (two lowercase letters)? ");
+    dget_text(sub_language, 3, NULL, 0);
+    if (sub_language[0] == '\0')
+      strcpy(sub_language, "en");
+  }
   save_config();
 }
 
@@ -139,14 +126,9 @@ void load_config(void) {
   FILE *fp;
 
   translit_charset = US_CHARSET;
-  monochrome = 0;
   video_size = 0;
-#ifdef __APPLE2ENH__
-  enable_video = 1;
-#else
-  enable_video = 0;
-#endif
   enable_subtitles = 1;
+  strcpy(sub_language, "en");
 
   cputs("Loading config...\r\n");
   fp = open_config("r");
@@ -154,31 +136,20 @@ void load_config(void) {
     return;
   }
 
-
   if (fp != NULL) {
     fgets(tmp_buf, 16, fp);
     if (strchr(tmp_buf, '\n')) {
       *strchr(tmp_buf, '\n') = '\0';
     }
-#ifdef __APPLE2ENH__
     translit_charset = strdup(tmp_buf);
-#endif
 
     fgets(tmp_buf, 16, fp);
-    monochrome = (tmp_buf[0] != '0');
-
-    fgets(tmp_buf, 16, fp);
-#ifdef __APPLE2ENH__
-    enable_video = (tmp_buf[0] != '0');
-#endif
+    video_size = (tmp_buf[0]-'0');
 
     fgets(tmp_buf, 16, fp);
     enable_subtitles = (tmp_buf[0] != '0');
 
-    fgets(tmp_buf, 16, fp);
-#ifdef __APPLE2ENH__
-    video_size = (tmp_buf[0]-'0');
-#endif
+    fgets(sub_language, 3, fp);
 
     fclose(fp);
   }

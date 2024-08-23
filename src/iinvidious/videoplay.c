@@ -11,85 +11,44 @@
 #include "path_helper.h"
 #include "surl.h"
 #include "config.h"
-#include "splash-video.h"
+#include "scrollwindow.h"
 
-char *translit_charset;
-char monochrome = 1;
+extern uint8 splash_hgr;
+extern char scrh;
 
 #pragma code-name(push, "LOWCODE")
 
 static void update_progress(void) {
   unsigned char eta = simple_serial_getc();
   hgr_mixon();
-  gotoxy(11, 20); /* strlen("Loading...") + 1 */
+  gotoxy(11, 0); /* strlen("Loading...") + 1 */
   if (eta == 255)
     cputs("(More than 30m remaining)");
   else
     cprintf("(About %ds remaining)   ", eta*8);
 }
 
-static char url[512];
-
-int main(void) {
-  unsigned char r, subtitles, size;
-  FILE *url_fp;
-
-  videomode(VIDEOMODE_80COL);
-
-  url_fp = fopen(URL_PASSER_FILE, "r");
-  surl_connect_proxy();
-
-  if (url_fp == NULL) {
-    goto out;
-  }
-  subtitles = fgetc(url_fp);
-  size = fgetc(url_fp);
-  translit_charset = malloc(32);
-  fgets(translit_charset, 31, url_fp);
-  if (strchr(translit_charset, '\n'))
-    *strchr(translit_charset, '\n') = '\0';
-  fgets(url, 511, url_fp);
-  fclose(url_fp);
+int stream_url(char *url, char *subtitles_url) {
+  char r;
 
   surl_start_request(SURL_METHOD_STREAM_AV, url, NULL, 0);
   simple_serial_write(translit_charset, strlen(translit_charset));
   simple_serial_putc('\n');
-  simple_serial_putc(monochrome);
-  simple_serial_putc(subtitles ? SUBTITLES_AUTO : SUBTITLES_NO);
-  simple_serial_putc(size);
-
-  /* Remove filename from URL in advance, so we don't get stuck in
-   * a loop if the player crashes for some reason */
-  reopen_start_device();
-  if (strchr(url, '/')) {
-    *(strrchr(url, '/')) = '\0';
+  simple_serial_putc(1); /* Monochrome */
+  simple_serial_putc(subtitles_url != NULL ? SUBTITLES_URL : SUBTITLES_NO); /* Enable subtitles */
+  if (subtitles_url != NULL) {
+    simple_serial_puts(subtitles_url);
+    simple_serial_putc('\n');
   }
-  url_fp = fopen(URL_PASSER_FILE,"w");
-
-  if (url_fp) {
-    fputc(subtitles, url_fp);
-    fputc(size, url_fp);
-    fputs(translit_charset, url_fp);
-    fputc('\n', url_fp);
-    fputs(url, url_fp);
-    fclose(url_fp);
-  }
-  reopen_start_device();
-
-  init_hgr(1);
-  hgr_mixon();
+  simple_serial_putc(video_size);
 
   clrscr();
   /* clear text page 2 */
   memset((char*)0x800, ' '|0x80, 0x400);
 
-  gotoxy(0, 20);
   cputs("Loading...\r\n"
-        "Controls: Space:      Play/Pause,             Esc: Quit player\r\n"
+        "Controls: Space:      Play/Pause,             Esc: Quit player,\r\n"
         "          Left/Right: Rewind/Forward,         ");
-  if (subtitles) {
-    cputs(                                             "Tab: Toggle subtitles");
-  }
   cputs("\r\n"
         "          -/=/+:      Volume up/default/down  S:   Toggle speed/quality");
 
@@ -98,7 +57,7 @@ wait_load:
     if (cgetc() == CH_ESC) {
       init_text();
       simple_serial_putc(SURL_METHOD_ABORT);
-      goto out;
+      return -1;
     }
   }
 
@@ -114,17 +73,16 @@ wait_load:
   } else if (r == SURL_ANSWER_STREAM_START) {
     videomode(VIDEOMODE_40COL);
     hgr_mixoff();
+    set_scrollwindow(0, scrh);
     clrscr();
     surl_stream_av();
-    init_text();
+    videomode(VIDEOMODE_80COL);
+    set_scrollwindow(20, scrh);
   } else {
-    init_text();
     clrscr();
-    gotoxy(13, 10);
     cputs("Playback error");
     sleep(1);
   }
-out:
-  exec("WOZAMP", NULL);
+  return 0;
 }
 #pragma code-name(pop)

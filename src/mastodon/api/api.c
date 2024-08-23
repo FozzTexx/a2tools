@@ -40,13 +40,19 @@ int api_search(char to_load, char *search, char search_type, char *load_before, 
 int api_get_posts(char *endpoint, char to_load, char *load_before, char *load_after, char *filter, char *sel, char **post_ids) {
   int n_status = 0;
 
-  snprintf(endpoint_buf, ENDPOINT_BUF_SIZE, "%s?limit=%d%s%s%s%s%s", endpoint, to_load,
-            load_after ? "&max_id=" : "",
-            load_after ? load_after : "",
-            load_before ? "&min_id=" : "",
-            load_before ? load_before : "",
-            filter ? filter : ""
-          );
+  snprintf(endpoint_buf, ENDPOINT_BUF_SIZE, "%s?limit=%d", endpoint, to_load);
+  if (load_before) {
+    strcat(endpoint_buf, "&min_id=");
+    strcat(endpoint_buf, load_before);
+  }
+  if (load_after) {
+    strcat(endpoint_buf, "&max_id=");
+    strcat(endpoint_buf, load_after);
+  }
+  if (filter) {
+    strcat(endpoint_buf, filter);
+  }
+
   get_surl_for_endpoint(SURL_METHOD_GET, endpoint_buf);
   
   if (!surl_response_ok())

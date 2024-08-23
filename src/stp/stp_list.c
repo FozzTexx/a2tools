@@ -298,9 +298,13 @@ char *stp_build_login_url(char *url) {
     host = url;
   }
 
-  if (login)
+  if (login) {
     snprintf(full_url, BUFSIZE, "%s://%s:%s@%s", proto, login, password, host);
-  else
+    free(login);
+    free(password);
+    login = NULL;
+    password = NULL;
+  } else
     snprintf(full_url, BUFSIZE, "%s://%s", proto, host);
   full_url = realloc(full_url, strlen(full_url) + 1);
 
@@ -434,8 +438,7 @@ int stp_get_data(char *url, const surl_response **resp) {
   }
 
   num_lines = strsplit_in_place(data, '\n', &lines);
-  if (nat_data) {
-    strsplit_in_place(nat_data, '\n', &nat_lines);
+  if (nat_data && strsplit_in_place(nat_data, '\n', &nat_lines) > 0) {
     display_lines = nat_lines;
   } else {
     nat_lines = NULL;

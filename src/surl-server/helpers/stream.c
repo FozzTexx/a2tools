@@ -103,11 +103,6 @@ static void *ffmpeg_video_decode_thread(void *th_data) {
   }
   pthread_mutex_unlock(&data->mutex);
 
-  if (data->enable_subtitles) {
-    printf("Waiting for subtitle thread.\n");
-    sem_wait(&data->sub_thread_ready);
-  }
-
   gettimeofday(&decode_start, 0);
   while ((buf = ffmpeg_video_decode_frame(data, video_len*FPS, frameno)) != NULL) {
     unsigned long usecs_per_frame, remaining_frames, done_len, remaining_len;
@@ -409,11 +404,13 @@ static byte_diff **diffs = NULL;
 #define AUDIO_NUM_LEVELS         (AUDIO_MAX_LEVEL+1)
 #define AUDIO_END_OF_STREAM      AUDIO_NUM_LEVELS
 
-#define AV_SAMPLE_OFFSET         0x60
 #define AV_MAX_LEVEL             31
 #define AV_NUM_LEVELS            (AV_MAX_LEVEL+1)
 #define AV_END_OF_STREAM         AV_NUM_LEVELS
-#define AV_KBD_LOAD_LEVEL        15
+#define AV_KBD_LOAD_LEVEL        16
+
+int av_sample_offset = 0;
+int av_sample_multiplier = 2;
 
 #define send_sample(i) fputc((i) + AUDIO_SAMPLE_OFFSET, ttyfp)
 
@@ -421,7 +418,7 @@ static int num_audio_samples = 0;
 static unsigned char audio_samples_buffer[SAMPLE_RATE*2];
 
 static inline void buffer_audio_sample(unsigned char i) {
-  audio_samples_buffer[num_audio_samples++] = i + AV_SAMPLE_OFFSET;
+  audio_samples_buffer[num_audio_samples++] = (i + av_sample_offset)*av_sample_multiplier;
 }
 
 static inline void flush_audio_samples(void) {
@@ -733,6 +730,7 @@ int surl_stream_video(char *url) {
 
   memset(th_data, 0, sizeof(decode_data));
   th_data->url = url;
+  th_data->video_size = HGR_SCALE_HALF;
   pthread_mutex_init(&th_data->mutex, NULL);
 
   printf("Starting video decode thread\n");
@@ -975,10 +973,8 @@ int err;
 
 unsigned char *audio_data = NULL;
 unsigned char *img_data = NULL;
-unsigned char *hgr_buf = NULL;
 size_t audio_size = 0;
 size_t img_size = 0;
-int audio_ready = 0;
 int vhgr_file;
 
 sem_t av_sem;
@@ -1022,8 +1018,8 @@ static void *audio_push(void *unused) {
 
     if (cur == audio_size) {
       if (stop) {
-        printf("Stopping at %zu/%zu\n", cur, audio_size);
-        return NULL; /* Don't set stop, so video can finish */
+        printf("Audio stop at %zu/%zu\n", cur, audio_size);
+        goto abort;
       } else {
         /* We're starved but not done :-( */
         continue;
@@ -1243,7 +1239,6 @@ void *video_push(void *unused) {
   char *push_sub = NULL;
   int push_sub_page = 0;
   int vidstop;
-  int last_offset = 0;
   int has_subtitles = 1;
   int interlace = 0;
   int accept_artefact = 0;
@@ -1391,65 +1386,35 @@ send:
             (sort_func)sort_by_offset);
   }
 
-  if (has_subtitles) {
-    for (j = 0; j < num_diffs; j++) {
-      int pixel = diffs[j]->offset;
+  for (j = 0; j < num_diffs; j++) {
+    int pixel = diffs[j]->offset;
 
+    offset = pixel - (cur_base*MAX_AV_OFFSET);
+    /* If there's no hole in updated bytes, we can let offset
+     * increment up to 255 */
+    if (j == 0
+        || (offset >= MAX_AV_OFFSET && pixel != last_diff+1)
+        || offset > 255
+        || offset < 0) {
+      /* we have to update base */
+      cur_base = pixel / MAX_AV_OFFSET;
       offset = pixel - (cur_base*MAX_AV_OFFSET);
-      /* If there's no hole in updated bytes, we can let offset
-       * increment up to 255 */
-      if ((offset >= MAX_AV_OFFSET && pixel != last_diff+1)
-        || offset > 255 || offset < 0) {
-        /* we have to update base */
-        cur_base = pixel / MAX_AV_OFFSET;
-        offset = pixel - (cur_base*MAX_AV_OFFSET);
 
-        DEBUG("send base (offset %d => %d, base %d => %d)\n",
-                last_sent_offset, offset, last_sent_base, cur_base);
-        buffer_video_offset(offset, ttyfp2);
-        buffer_video_base(cur_base, ttyfp2);
-      } else if (pixel != last_diff+1) {
-        DEBUG("send offset %d (base is %d)\n", offset, cur_base);
-        /* We have to send offset */
-        buffer_video_offset(offset, ttyfp2);
-      }
-      buffer_video_byte(buf[page][pixel], ttyfp2);
-
-      last_diff = pixel;
-
-      /* Note diff done */
-      buf_prev[page][pixel] = buf[page][pixel];
+      DEBUG("send base (offset %d => %d, base %d => %d)\n",
+              last_sent_offset, offset, last_sent_base, cur_base);
+      buffer_video_offset(offset, ttyfp2);
+      buffer_video_base(cur_base, ttyfp2);
+    } else if (pixel != last_diff+1) {
+      DEBUG("send offset %d (base is %d)\n", offset, cur_base);
+      /* We have to send offset */
+      buffer_video_offset(offset, ttyfp2);
     }
-  } else {
-    for (j = 0; j < num_diffs; j++) {
-      int pixel = diffs[j]->offset;
+    buffer_video_byte(buf[page][pixel], ttyfp2);
 
-      if (j == 0) {
-        buffer_video_offset(0x00, ttyfp2); /* Reset skip */
-        last_offset = 0;
-      }
+    last_diff = pixel;
 
-      offset = pixel - last_offset;
-      /* If there's no hole in updated bytes, we can let offset
-       * increment up to 255 */
-      if (offset >= MAX_AV_OFFSET || pixel != last_diff+1) {
-        /* we have to update base */
-        while (last_offset != pixel) {
-          unsigned char skip = pixel - last_offset > MAX_AV_OFFSET ? MAX_AV_OFFSET : pixel - last_offset;
-          buffer_video_offset(skip, ttyfp2);
-          last_offset += skip;
-          DEBUG("send skip %d, offset now %d\n", skip, last_offset);
-        }
-        offset = 0;
-      }
-      DEBUG("send pixel %d at %d:%d\n", buf[page][pixel], last_offset, offset);
-      buffer_video_byte(buf[page][pixel], ttyfp2);
-
-      last_diff = pixel;
-
-      /* Note diff done */
-      buf_prev[page][pixel] = buf[page][pixel];
-    }
+    /* Note diff done */
+    buf_prev[page][pixel] = buf[page][pixel];
   }
 
   total += num_diffs;
@@ -1501,7 +1466,7 @@ close_last:
   return NULL;
 }
 
-int surl_stream_audio_video(char *url, char *translit, char monochrome, char subtitles, char size) {
+int surl_stream_audio_video(char *url, char *translit, char monochrome, char subtitles, char *subtitles_url, char size) {
   int j;
   int cancelled = 0, playback_stop = 0;
   /* Control vars */
@@ -1526,6 +1491,7 @@ int surl_stream_audio_video(char *url, char *translit, char monochrome, char sub
   video_th_data->enable_subtitles = subtitles;
   video_th_data->video_size = size;
   video_th_data->translit = translit;
+  video_th_data->subtitles_url = subtitles_url;
   pthread_mutex_init(&video_th_data->mutex, NULL);
 
   printf("Starting video decode thread\n");
@@ -1560,7 +1526,6 @@ int surl_stream_audio_video(char *url, char *translit, char monochrome, char sub
   pthread_mutex_lock(&audio_th_data->mutex);
   img_data = audio_th_data->img_data;
   img_size = audio_th_data->img_size;
-  send_metadata("has_video", audio_th_data->has_video ? "1":"0", translit);
   pthread_mutex_unlock(&audio_th_data->mutex);
 
   if (diffs == NULL) {
@@ -1584,19 +1549,6 @@ int surl_stream_audio_video(char *url, char *translit, char monochrome, char sub
   offset = cur_base = 0;
 
   printf("AV: Client ready\n");
-  if (hgr_buf) {
-    simple_serial_putc(SURL_ANSWER_STREAM_ART);
-    if (simple_serial_getc() == SURL_CLIENT_READY) {
-      printf("Sending image\n");
-      simple_serial_write_fast((char *)hgr_buf, img_size);
-      if (simple_serial_getc() != SURL_CLIENT_READY) {
-        goto cleanup_thread;
-      }
-    } else {
-      printf("Skip image sending\n");
-    }
-  }
-
 
   simple_serial_putc(SURL_ANSWER_STREAM_START);
   if (simple_serial_getc() != SURL_CLIENT_READY) {
@@ -1611,6 +1563,10 @@ int surl_stream_audio_video(char *url, char *translit, char monochrome, char sub
     ret = -1;
     goto cleanup_thread;
   }
+
+  av_sample_offset = simple_serial_getc();
+  av_sample_multiplier = simple_serial_getc();
+  printf("Sample offset is %d mult %d\n", av_sample_offset, av_sample_multiplier);
 
   sleep(1); /* Let ffmpeg have a bit of time to push data so we don't starve */
 
@@ -1655,7 +1611,6 @@ int surl_stream_audio_video(char *url, char *translit, char monochrome, char sub
   }
   pthread_mutex_unlock(&audio_th_data->mutex);
 
-  audio_ready = 0;
   sem_init(&av_sem, 0, 0);
   pthread_create(&audio_push_thread, NULL, *audio_push, NULL);
   pthread_create(&video_push_thread, NULL, *video_push, NULL);

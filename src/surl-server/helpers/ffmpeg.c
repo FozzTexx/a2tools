@@ -41,6 +41,7 @@
 
 #include <ffmpeg.h>
 #include "char-convert.h"
+#include "../surl_protocol.h"
 
 /* Final buffer size, possibly including black borders */
 #define HGR_WIDTH 280
@@ -108,6 +109,8 @@ static int open_video_file(char *filename)
 {
     const AVCodec *dec;
     int ret;
+    AVDictionary *video_options = NULL;
+
     init_base_addrs();
 
     if (!strncasecmp("sftp://", filename, 7)) {
@@ -116,21 +119,27 @@ static int open_video_file(char *filename)
       memcpy(filename, "ftp", 3);
     }
 
-    if ((ret = avformat_open_input(&video_fmt_ctx, filename, NULL, NULL)) < 0) {
-        printf("Video: Cannot open input file\n");
-        return ret;
+    av_dict_set(&video_options, "reconnect_on_network_error", "1", 0);
+    av_dict_set(&video_options, "reconnect", "1", 0);
+
+    if ((ret = avformat_open_input(&video_fmt_ctx, filename, NULL, &video_options)) < 0) {
+      av_dict_free(&video_options);
+      printf("Video: Cannot open input file\n");
+      return ret;
     }
 
+    av_dict_free(&video_options);
+
     if ((ret = avformat_find_stream_info(video_fmt_ctx, NULL)) < 0) {
-        printf("Video: Cannot find stream information\n");
-        return ret;
+      printf("Video: Cannot find stream information\n");
+      return ret;
     }
 
     /* select the stream */
     ret = av_find_best_stream(video_fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, &dec, 0);
     if (ret < 0) {
-        printf("Video: Cannot find a corresponding stream in the input file\n");
-        return ret;
+      printf("Video: Cannot find a corresponding stream in the input file\n");
+      return ret;
     }
 
     video_stream_index = ret;
@@ -225,8 +234,8 @@ static int init_video_filters(char subtitles, char size)
       FPS = 24;
     }
 
-    printf("Original video %dx%d (%.2f), %.2ffps, doing %d fps\n", video_dec_ctx->width, video_dec_ctx->height, aspect_ratio,
-           fps, FPS);
+    printf("Original video %dx%d (%.2f), %.2ffps, doing %d fps with size %d, %ssubs\n", video_dec_ctx->width, video_dec_ctx->height, aspect_ratio,
+           fps, FPS, size, subtitles?"":"no ");
 
     /* Get final resolution. We don't want too much "square pixels". */
     for (pic_width = HGR_WIDTH - 4; pic_width > HGR_WIDTH/4; pic_width--) {
@@ -235,13 +244,13 @@ static int init_video_filters(char subtitles, char size)
         continue;
       if (subtitles && pic_height > 156)
         continue;
-      if (pic_width * pic_height < (size ? 0x2000 : MAX_BYTES_PER_FRAME) * 8) {
+      if (pic_width * pic_height < (size != HGR_SCALE_HALF ? 0x2000 : MAX_BYTES_PER_FRAME) * 8) {
         break;
       }
     }
     printf("Rescaling to %dx%d (%d pixels)\n", pic_width, pic_height, pic_width * pic_height);
 
-    if (size == 0)
+    if (size == HGR_SCALE_HALF)
       sprintf(filters_descr, video_filter_descr_s,
               FPS,
               pic_width, pic_height,
@@ -253,7 +262,7 @@ static int init_video_filters(char subtitles, char size)
               FPS,
               pic_width, pic_height,
               HGR_WIDTH, HGR_HEIGHT,
-              subtitles && size ? 2 : -1);
+              subtitles ? 2 : -1);
 
     video_filter_graph = avfilter_graph_alloc();
     if (!outputs || !inputs || !video_filter_graph) {
@@ -532,20 +541,27 @@ skip_line:
 static void *ffmpeg_subtitles_decode_thread(void *data) {
   decode_data *th_data = (decode_data *)data;
 
-  th_data->has_subtitles = 1;
+  th_data->has_subtitles = 0;
 
-  if (ffmpeg_subtitles_decode(th_data, th_data->url) < 0) {
-    char *srt = malloc(strlen(th_data->url) + 10);
-    strcpy(srt, th_data->url);
-    if (strchr(srt, '.'))
-      strcpy(strrchr(srt, '.'), ".srt");
-    if (ffmpeg_subtitles_decode(data, srt) < 0) {
-      th_data->has_subtitles = 0;
-      /* We're ready, without subtitles. */
-      sem_post(&th_data->sub_thread_ready);
+  if (th_data->subtitles_url == NULL) {
+    if (ffmpeg_subtitles_decode(th_data, th_data->url) < 0) {
+      char *srt = malloc(strlen(th_data->url) + 10);
+      printf("No embedded subtitles.\n");
+      strcpy(srt, th_data->url);
+      if (strchr(srt, '.'))
+        strcpy(strrchr(srt, '.'), ".srt");
+      if (ffmpeg_subtitles_decode(data, srt) < 0) {
+        printf("No srt subtitles.\n");
+      }
+      free(srt);
     }
-    free(srt);
+  } else if (ffmpeg_subtitles_decode(data, th_data->subtitles_url) < 0) {
+    printf("No subtitles at URL %s.\n", th_data->subtitles_url);
   }
+
+  /* We're ready. */
+  sem_post(&th_data->sub_thread_ready);
+
   return NULL;
 }
 
@@ -566,13 +582,15 @@ int ffmpeg_video_decode_init(decode_data *data, int *video_len) {
         goto end;
     }
 
-    if ((ret = init_video_filters(data->enable_subtitles, data->video_size)) < 0) {
-        goto end;
-    }
-
     if (data->enable_subtitles) {
       pthread_mutex_init(&data->sub_mutex, NULL);
       pthread_create(&data->sub_thread, NULL, *ffmpeg_subtitles_decode_thread, (void *)data);
+      printf("Waiting for subtitle thread.\n");
+      sem_wait(&data->sub_thread_ready);
+    }
+
+    if ((ret = init_video_filters(data->has_subtitles, data->video_size)) < 0) {
+        goto end;
     }
 
     printf("Duration %lus\n", video_fmt_ctx->duration/1000000);
@@ -1000,6 +1018,10 @@ skip:
               if (*(idx+1) != '\0')
                 *(idx+1) = ' ';
             }
+            while ((idx = strstr(text, "&nbsp;"))) {
+              *idx = ' ';
+              memmove(idx+1, idx+6, strlen(idx)-5);
+            }
             idx = strdup(text);
             data->subs[start_frame] = do_charset_convert(idx, OUTGOING,
                                         data->translit ? data->translit:"US_ASCII", 0, &l);
@@ -1008,8 +1030,6 @@ skip:
             free(idx);
             prev_end_frame = end_frame;
             pthread_mutex_unlock(&data->sub_mutex);
-            /* We got subtitles, we're ready */
-            sem_post(&data->sub_thread_ready);
           }
           avsubtitle_free(&subtitle);
         }
@@ -1018,6 +1038,7 @@ skip:
     }
 
 end:
+    data->has_subtitles = (prev_end_frame > 0);
     av_packet_free(&packet);
     avcodec_free_context(&dec);
     avformat_close_input(&ctx);
@@ -1212,7 +1233,7 @@ end:
     ret = 0;
 
     pthread_mutex_lock(&data->mutex);
-    printf("Decoding finished at %zu\n", data->size);
+    printf("Audio decoding finished at %zu\n", data->size);
     data->decoding_end = 1;
     data->decoding_ret = ret;
     pthread_mutex_unlock(&data->mutex);
