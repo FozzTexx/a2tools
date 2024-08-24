@@ -3,10 +3,11 @@ iigs_CFLAGS := -DIIGS
 suffix := -iigs
 else
 ifdef OLDII
-suffix := -oldii
+suffix := -6502
+WOZAMP_VIDEOPLAY := 1
 else
 iigs_FLAGS :=
-suffix :=
+suffix := -65c02
 WOZAMP_VIDEOPLAY := 1
 endif
 endif
@@ -148,7 +149,6 @@ homectrl$(suffix).po: $(homectrl_disk_PROGS)
 	for prog in $^; do \
 		java -jar bin/ac.jar -as $@ $$(basename $$prog | sed "s/\.bin$///") < $$prog; \
 	done
-	cp $@ dist/; \
 
 homectrlperso$(suffix).po: $(homectrl_disk_PROGS)
 	cp $(CLEANDISK) $@; \
@@ -196,7 +196,7 @@ quicktake$(suffix).po: $(quicktake_disk_PROGS)
 
 imageviewer$(suffix).po: $(imageviewer_disk_PROGS)
 	cp $(CLEANDISK) $@; \
-	java -jar bin/ac.jar -n $@ QUICKTAKE
+	java -jar bin/ac.jar -n $@ IMGVIEW
 	java -jar bin/ac.jar -p $@ IMGVIEW.SYSTEM SYS < bin/loader.system; \
 	java -jar bin/ac.jar -d $@ BASIC.SYSTEM; \
 	for prog in $^; do \
@@ -207,6 +207,18 @@ imageviewer$(suffix).po: $(imageviewer_disk_PROGS)
 doc-dist:
 	$(MAKE) -C doc -f Makefile dist
 
+ifndef IIGS
+ifdef OLDII
+#6502 things
+dist: all \
+	stp$(suffix).po \
+	mastodon$(suffix).po \
+	wozamp$(suffix).po \
+	iinvidious$(suffix).po \
+	doc-dist
+
+else
+#65c02 things
 dist: all \
 	stp$(suffix).po \
 	telnet$(suffix).po \
@@ -220,3 +232,20 @@ dist: all \
 	wozamp$(suffix).po \
 	iinvidious$(suffix).po \
 	doc-dist
+endif
+
+else
+#IIgs things
+dist: all \
+	stp$(suffix).po \
+	telnet$(suffix).po \
+	homectrl$(suffix).po \
+	imageviewer$(suffix).po \
+	mastodon$(suffix).po \
+	mastoperso$(suffix).po \
+	homectrlperso$(suffix).po \
+	stpperso$(suffix).po \
+	quicktake$(suffix).po \
+	wozamp$(suffix).po \
+	doc-dist
+endif
